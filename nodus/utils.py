@@ -218,7 +218,7 @@ class CustomLogger:
         # Ensure level is at max 4 characters
         level = level[:4]
         self._preprints(level, print_header = print_header)
-        self.logger.log(level, msg, **kwargs)
+        self.logger.log(msg, level = level, **kwargs)
     
     def close(self):
         level_name = self.fmt_level.format(level_name = "")
