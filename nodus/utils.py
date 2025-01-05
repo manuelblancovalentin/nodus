@@ -160,7 +160,7 @@ class CustomLogger:
     def __check_level(self, level_name, print_cross = True, print_header = False):
         # Check if level changed 
         old_level = str(self.last_level)
-        print_top_border = self.last_level != level_name | print_header
+        print_top_border = (self.last_level != level_name) | print_header
         self.last_level = level_name
 
         # Define border characters
