@@ -217,9 +217,19 @@ class CustomLogger:
     def custom(self, level, msg, print_header = False, **kwargs):
         # Ensure level is at max 4 characters
         level = level[:4]
+
+        CUSTOM_LEVELV_NUM = 9 
+        logging.addLevelName(CUSTOM_LEVELV_NUM, level)
+        def _custom(self, message, *args, **kws):
+            # Yes, logger takes its '*args' as 'args'.
+            self._log(CUSTOM_LEVELV_NUM, message, args, **kws) 
+        logging.Logger.custom = _custom
+
         self._preprints(level, print_header = print_header)
-        self.logger.log(msg, level = level, **kwargs)
+        self.logger.custom(msg, **kwargs)
     
+    
+
     def close(self):
         level_name = self.fmt_level.format(level_name = "")
         space = ' ' * (len(level_name) + 2)  # Space for level
