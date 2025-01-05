@@ -157,10 +157,10 @@ class CustomLogger:
             print_cross = False
         return print_cross
 
-    def __check_level(self, level_name, print_cross = True):
+    def __check_level(self, level_name, print_cross = True, print_header = False):
         # Check if level changed 
         old_level = str(self.last_level)
-        print_top_border = self.last_level != level_name
+        print_top_border = self.last_level != level_name | print_header
         self.last_level = level_name
 
         # Define border characters
@@ -186,33 +186,39 @@ class CustomLogger:
             self.__change_handlers_formatter(fmt)
         return print_top_border
 
-    def _preprints(self, level):
+    def _preprints(self, level, print_header = False):
         # Get the current date and time
         current_date, current_time = self.__get_datetime()
         print_cross = self.__check_date(current_date)
 
         # Check if the level changed. If it did, we need to print the top border
-        print_top_border = self.__check_level(level, print_cross)
+        print_top_border = self.__check_level(level, print_cross, print_header)
 
-    def info(self, msg, **kwargs):
-        self._preprints('INFO')
+    def info(self, msg, print_header = False, **kwargs):
+        self._preprints('INFO', print_header = print_header)
         self.logger.info(msg, **kwargs)
 
-    def error(self, msg, **kwargs):
-        self._preprints('ERR')
+    def error(self, msg, print_header = False, **kwargs):
+        self._preprints('ERR', print_header = print_header)
         self.logger.error(msg, **kwargs)
 
-    def warn(self, msg, **kwargs):
-        self._preprints('WARN')
+    def warn(self, msg, print_header = False, **kwargs):
+        self._preprints('WARN', print_header = print_header)
         self.logger.warning(msg, **kwargs)
     
-    def debug(self, msg, **kwargs):
-        self._preprints('DBG')
+    def debug(self, msg, print_header = False, **kwargs):
+        self._preprints('DBG', print_header = print_header)
         self.logger.debug(msg, **kwargs)
     
-    def critical(self, msg, **kwargs):
-        self._preprints('CRIT')
+    def critical(self, msg, print_header = False, **kwargs):
+        self._preprints('CRIT', print_header = print_header)
         self.logger.critical(msg, **kwargs)
+    
+    def custom(self, level, msg, print_header = False, **kwargs):
+        # Ensure level is at max 4 characters
+        level = level[:4]
+        self._preprints(level, print_header = print_header)
+        self.logger.log(level, msg, **kwargs)
     
     def close(self):
         level_name = self.fmt_level.format(level_name = "")
