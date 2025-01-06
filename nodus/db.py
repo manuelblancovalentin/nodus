@@ -30,6 +30,38 @@ import nodus
 from .manager import JobManager
 from . import utils
 
+""" Definition of the nodus database schemes """
+# Jobs table
+__JOBS_TABLE_SCHEME__ = '''
+            CREATE TABLE IF NOT EXISTS jobs (
+                job_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nodus_session_id TEXT NOT NULL,
+                parent_caller TEXT NOT NULL,
+                job_name TEXT,
+                status TEXT DEFAULT 'waiting',  -- 'waiting', 'running', 'complete', 'failed'
+                timestamp TEXT NOT NULL,
+                completion_time TEXT,
+                log_path TEXT,
+                pid TEXT DEFAULT NULL,
+                config TEXT
+            )
+        '''
+
+# Jobs dependencies 
+__DEPENDENCIES_TABLE_SCHEME__ = '''
+            CREATE TABLE IF NOT EXISTS job_dependencies (
+                job_id INTEGER,
+                dependency_job_id INTEGER,
+                FOREIGN KEY (job_id) REFERENCES jobs (job_id),
+                FOREIGN KEY (dependency_job_id) REFERENCES jobs (job_id),
+                PRIMARY KEY (job_id, dependency_job_id)
+            );
+        '''
+
+
+""" 
+    Nodus Session class (holds dbs and manages them)
+"""
 class NodusSession:
     def __init__(self):
         # Generate a unique session ID
@@ -105,7 +137,9 @@ class NodusDB:
         self.cursor = self.conn.cursor()
 
         # Create the jobs table if it doesn't exist
-        if create_table: self.create_jobs_table()
+        if create_table: 
+            self.create_jobs_table()
+            self.create_job_dependencies_table()
 
         # Initialize the JobManager
         jm_name = f"{name}_job_manager"
@@ -113,23 +147,16 @@ class NodusDB:
 
     def create_jobs_table(self):
         """Create the jobs table if it doesn't exist."""
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS jobs (
-                job_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nodus_session_id TEXT NOT NULL,
-                parent_caller TEXT NOT NULL,
-                job_name TEXT,
-                status TEXT NOT NULL,
-                timestamp TEXT NOT NULL,
-                completion_time TEXT,
-                log_path TEXT,
-                pid TEXT DEFAULT NULL,
-                config TEXT
-            )
-        ''')
+        self.cursor.execute(__JOBS_TABLE_SCHEME__)
         self.conn.commit()
         # Log 
         nodus.__logger__.info(f"Created jobs table in NodusDB instance '{self.name}'")
+
+    def create_job_dependencies_table(self):
+        """Create the job_dependencies table if it doesn't exist."""
+        self.cursor.execute(__DEPENDENCIES_TABLE_SCHEME__)
+        self.conn.commit()
+        nodus.__logger__.info(f"Created job_dependencies table in NodusDB instance '{self.name}'")
 
     def close(self):
         """Close the database connection."""

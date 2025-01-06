@@ -41,9 +41,13 @@ if not os.path.exists(__nodus_logs_dir__):
 # Import nodus
 from .db import NodusSession, NodusDB
 __logger__.info("Nodus imported")
+# Import jobs
+from .job import Job
+__logger__.info("Jobs imported")
 # Import JobManager
-from .manager import JobManager, Job
+from .manager import JobManager
 __logger__.info("JobManager imported")
+# Ready
 __logger__.info("Nodus ready to use")
 
 # Import ui if needed
