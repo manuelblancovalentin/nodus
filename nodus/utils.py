@@ -40,27 +40,26 @@ def get_nodus_version():
     """Get the version of the Nodus framework."""
     return nodus.__version__
 
-
-class CustomFormatter(logging.Formatter):
+class CustomFormatter:
     def __init__(self, *args, level_formatter = "{level_name}", time_formatter = "{current_time:<8}", **kwargs):
-        super().__init__(*args, **kwargs)
         self.last_level = None
         self.level_formatter = level_formatter
         self.time_formatter = time_formatter
         self.print_level = True
 
-    def format(self, record):
+    def format(self, level_name, message):
 
         # Get the current time
         current_time = datetime.now().strftime('%H:%M:%S.%f')[:-4]
 
         # Format the log level and message
-        level_name = record.levelname.replace('WARNING', 'WARN').replace('ERROR', 'ERR')
-        message = record.getMessage()
+        #level_name = record.levelname.replace('WARNING', 'WARN').replace('ERROR', 'ERR')
+        level_name = level_name.replace('WARNING', 'WARN').replace('ERROR', 'ERR')
+        #message = record.getMessage()
 
         # Check if level changed 
         #print_level = self.last_level != level_name
-        #self.last_level = level_name            
+        self.last_level = level_name            
 
         # Format the log level and time 
         level_name = self.level_formatter.format(level_name = level_name)
@@ -87,10 +86,27 @@ class CustomLogger:
         self.log_file_path = None
 
         # Get the maximum length allowed for the log message (which means, for the level name, and the date)
-        self.__get_max_lengths()
+        self.fmt_level, self.fmt_time = self.__get_max_lengths()
 
         # Set up logger with both console and file logging
-        self.logger = self.setup_logger(dir = dir, level_formatter = self.fmt_level, time_formatter = self.fmt_time, log_to_file=True)
+        self.dir = dir 
+        self.handlers = []
+
+        self.setup_logger(dir = dir, level_formatter = self.fmt_level, time_formatter = self.fmt_time, log_to_file=True)
+        #self.logger = self.setup_logger(dir = dir, level_formatter = self.fmt_level, time_formatter = self.fmt_time, log_to_file=True)
+
+    def print(self, level, msg):
+        for handler in self.handlers:
+            if level is not None:
+                t = handler.formatter.format(level, msg)
+            else:
+                t = msg
+            print(t, file=handler.stream)
+        # Update last level
+        self.last_level = level
+
+    def add_handler(self, handler):
+        self.handlers.append(handler)
 
     def __get_max_lengths(self):
         level_names = ['INFO', 'WARN', 'ERR', 'DBG', 'CRIT', 'LOG']
@@ -100,13 +116,14 @@ class CustomLogger:
                 self.max_length = max_length
             def format(self, level_name = ""):
                 return level_name + ' ' + (self.max_length-len(level_name))*"─"
-        self.fmt_level = fmt_level(self.max_level_length)
-        self.fmt_time = "{current_time:<8}"
+        fmt_level = fmt_level(self.max_level_length)
+        fmt_time = "{current_time:<8}"
+        return fmt_level, fmt_time
     
     def setup_logger(self, dir = '.', log_to_file=False, log_file_path=None, **kwargs):
         # Set up the logger
-        logger = logging.getLogger('nodus')
-        logger.setLevel(logging.DEBUG)
+        #logger = logging.getLogger()
+        #logger.setLevel(logging.DEBUG)
 
         # Formatter for the log messages
         self.formatter = CustomFormatter('%(message)s', **kwargs)
@@ -114,7 +131,8 @@ class CustomLogger:
         # Console handler to print to stdout
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(self.formatter)
-        logger.addHandler(console_handler)
+        #logger.addHandler(console_handler)
+        self.add_handler(console_handler)
 
         # File handler to log to a file, if enabled
         if log_to_file:
@@ -123,9 +141,10 @@ class CustomLogger:
             file_handler = logging.FileHandler(log_file_path)
             file_handler.setFormatter(self.formatter)
             print(f'Logging to file: {log_file_path}')
-            logger.addHandler(file_handler)
+            #logger.addHandler(file_handler)
+            self.add_handler(file_handler)
 
-        return logger
+        #return logger
 
     # Function to get the current date and time
     def __get_datetime(self):
@@ -137,7 +156,7 @@ class CustomLogger:
     # Function to change the formatter of the logger handlers
     def __change_handlers_formatter(self, formatter):
         # Loop thru logger handlers
-        for handler in self.logger.handlers:
+        for handler in self.handlers:
             handler.setFormatter(formatter)
 
     def __check_date(self, current_date):
@@ -149,7 +168,8 @@ class CustomLogger:
             # Set None formatters just to print the date 
             self.__change_handlers_formatter(None)
             # Print the date
-            self.logger.info(date_change)
+            #self.logger.info(date_change)
+            self.none(date_change)
             # Set the formatter back
             fmt = CustomFormatter('%(message)s', level_formatter = self.fmt_level, time_formatter = self.fmt_time)
             self.__change_handlers_formatter(fmt)
@@ -174,7 +194,8 @@ class CustomLogger:
             # Set None formatters just to print the border
             self.__change_handlers_formatter(None)
             # Print the border
-            self.logger.info(border_top)
+            #self.logger.info(border_top)
+            self.none(border_top)
             # Set the formatter back
             fmt = CustomFormatter('%(message)s', level_formatter = self.fmt_level, time_formatter = self.fmt_time)
             fmt.print_level = True
@@ -190,45 +211,55 @@ class CustomLogger:
         # Get the current date and time
         current_date, current_time = self.__get_datetime()
         print_cross = self.__check_date(current_date)
-
         # Check if the level changed. If it did, we need to print the top border
         print_top_border = self.__check_level(level, print_cross, print_header)
 
+    def none(self, msg, **kwargs):
+        self.print(None, msg)
+
     def info(self, msg, print_header = False, **kwargs):
         self._preprints('INFO', print_header = print_header)
-        self.logger.info(msg, **kwargs)
+        self.print('INFO', msg)
+        #self.logger.info(msg, **kwargs)
 
     def error(self, msg, print_header = False, **kwargs):
         self._preprints('ERR', print_header = print_header)
-        self.logger.error(msg, **kwargs)
+        self.print('ERR', msg)
+        #self.logger.error(msg, **kwargs)
 
     def warn(self, msg, print_header = False, **kwargs):
         self._preprints('WARN', print_header = print_header)
-        self.logger.warning(msg, **kwargs)
+        self.print('WARN', msg)
+        #self.logger.warning(msg, **kwargs)
     
     def debug(self, msg, print_header = False, **kwargs):
         self._preprints('DBG', print_header = print_header)
-        self.logger.debug(msg, **kwargs)
+        self.print('DBG', msg)
+        #self.logger.debug(msg, **kwargs)
     
     def critical(self, msg, print_header = False, **kwargs):
         self._preprints('CRIT', print_header = print_header)
-        self.logger.critical(msg, **kwargs)
+        self.print('CRIT',msg)
+        #self.logger.critical(msg, **kwargs)
     
     def custom(self, level, msg, print_header = False, **kwargs):
         # Ensure level is at max 4 characters
         level = level[:4]
+        # self._preprints(level, print_header = print_header)
+        # self.logger.info(msg, **kwargs)
 
-        CUSTOM_LEVELV_NUM = 9 
-        logging.addLevelName(CUSTOM_LEVELV_NUM, level)
-        def _custom(self, message, *args, **kws):
-            # Yes, logger takes its '*args' as 'args'.
-            self._log(CUSTOM_LEVELV_NUM, message, args, **kws) 
-        logging.Logger.custom = _custom
+        # CUSTOM_LEVELV_NUM = 9
+        # logging.addLevelName(CUSTOM_LEVELV_NUM, level)
+        # def _custom(self, message, *args, **kws):
+        #     # Yes, logger takes its '*args' as 'args'.
+        #     self._log(CUSTOM_LEVELV_NUM, message, args, **kws) 
+        
+        # if not hasattr(logging.Logger, level):
+        #     setattr(logging.Logger,level,_custom)
 
         self._preprints(level, print_header = print_header)
-        self.logger.custom(msg, **kwargs)
-    
-    
+        #getattr(self.logger,level)(msg, **kwargs)
+        self.print(level, msg)
 
     def close(self):
         level_name = self.fmt_level.format(level_name = "")
@@ -238,11 +269,13 @@ class CustomLogger:
         # Set formatters to None
         self.__change_handlers_formatter(None)
         # Print the bottom border
-        self.logger.info(border_bottom)
+        #self.logger.info(border_bottom)
+        self.none(border_bottom)
         # Print a goodbye message with the current date and time
         current_date = datetime.now().strftime('%d/%b/%Y')
         current_time = datetime.now().strftime('%H:%M:%S.%f')[:-4]
-        self.logger.info(f'-- Nodus closing @ [{current_date} {current_time}] 👋')
+        #self.logger.info(f'-- Nodus closing @ [{current_date} {current_time}] 👋')
+        self.none(f'-- Nodus closing @ [{current_date} {current_time}] 👋')
         # Set the formatter back
         fmt = CustomFormatter('%(message)s', level_formatter = self.fmt_level, time_formatter = self.fmt_time)
         # Done

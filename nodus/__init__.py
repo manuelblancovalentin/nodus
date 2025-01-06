@@ -26,6 +26,8 @@ print(HEADER)
 __logger__ = CustomLogger(dir = __nodus_data_dir__)
 __logger__.info("Nodus initialized")
 __logger__.info(f"Nodus version: {__version__}")
+# Make sure we don't propagate logger 
+__logger__.propagate = False
 
 # Get log file path
 __nodus_log_file__ = __logger__.log_file_path
