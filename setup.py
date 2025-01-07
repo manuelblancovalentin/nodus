@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="nodus",
-    version="0.0.8",
+    version="0.0.9",
     author="Manuel Blanco Valentin",
     author_email="manuel.blanco.valentin@gmail.com",
     description="Nodus - A lightweight and reusable job manager.",

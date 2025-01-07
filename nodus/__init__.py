@@ -52,7 +52,7 @@ __logger__.info("Nodus ready to use")
 
 # Import ui if needed
 try:
-    from .ui import curses_main
+    from .ui import run_ui
 except ImportError as e:
     __logger__.error(f"Failed to import UI module: {e}")
 
