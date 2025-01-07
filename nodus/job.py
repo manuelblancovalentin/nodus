@@ -27,6 +27,7 @@ class Job:
 
         # Init process to None (only valid after running the subprocess)
         self.process = None
+        self.dependencies = set() # Empt set to store dependencies
 
         # Init markers to track progress of processes 
         self.marker_dir = tempfile.gettempdir()  # Use system's temp directory
@@ -61,35 +62,51 @@ class Job:
 
     def _check_job_status(self):
         """Determine the current status of a job."""
+        #nodus.__logger__.debug(f"Checking status of Job {self.name} [{self.job_id}] with PID: {self.pid}: {self.status}")
+        
         # If the job was started as a process, check its return code
-        if self.process:
+        if self.process and self.has_started:
             return_code = self.process.poll()  # Non-blocking check for completion
+            #nodus.__logger__.debug(f"\t{self.pid}, HAS STARTED and has a process {self.process}. Return code is: {return_code}")
             if return_code is None:
                 self.status = "running"
             else:
                 self.status = "completed" if return_code == 0 else "errored"
                 self.finalize()  # Create end marker
+                nodus.__logger__.info(f"Job {self.name} [{self.job_id}] finalized with status: {self.status}")
+            return self.status
+        
+        # If the job is in 'waiting' state, ensure it does not transition to 'errored'
+        if self.status == "waiting" or self.status == 'pending':
+            # Only allow 'waiting' jobs to transition once dependencies are resolved
             return self.status
 
         # If no process, fall back to markers and PID checks
-        if not self.has_started:
-            if os.path.exists(self.start_marker):
-                self.status = "running"
-                self.has_started = True
-                return self.status
-
+        if not self.has_started and os.path.exists(self.start_marker):
+            self.status = "running"
+            self.has_started = True
+            #nodus.__logger__.debug(f"Job {self.name} [{self.job_id}] marked as started since start marker exists.")
+            return self.status
+        
         if not os.path.exists(self.start_marker):
             if nodus.utils.is_pid_running(self.pid):
                 self.status = "running"
             elif os.path.exists(self.end_marker):
                 self.status = "completed"
-            else:
+            elif self.status != 'waiting' and self.status != 'pending':
                 self.status = "errored"
+
+        if self.status == "completed":
+            self.finalize()
+
+        #nodus.__logger__.debug(f"Job {self.name} [{self.job_id}] status checked: {self.status}")
+
         return self.status
     
     def finalize(self):
         """Create end marker file."""
         self._create_marker_file(self.end_marker)
+        self.has_ended = True
 
     """ Representation """
     def __repr__(self):
@@ -131,11 +148,15 @@ class CommandJob(Job):
                     self.command, shell=True, stdout = log_file, stderr = subprocess.STDOUT
                     )
             self.pid = self.process.pid
+            self.has_started = True
             # Log 
-            nodus.__logger__.info(f"Command Job {self.job_id} started with PID: {self.pid}")
+            nodus.__logger__.info(f"Command Job {self.name} [{self.job_id}] started with PID: {self.pid}")
         else:
-            nodus.__logger__.error(f"Command not provided for Job {self.job_id}.")
-    
+            nodus.__logger__.error(f"Command not provided for Job {self.name} [{self.job_id}]")
+
+        # Update status
+        self.status = self._check_job_status()
+
     """ Repr """
     def __repr__(self):
         s = super().__repr__()
@@ -187,11 +208,15 @@ class ScriptJob(Job):
                     [self.shell, self.script_path], stdout = log_file, stderr = subprocess.STDOUT
                     )
             self.pid = self.process.pid
+            self.has_started = True
             # Log 
             nodus.__logger__.info(f"Script Job {self.job_id} started with PID: {self.pid}")
         else:
             nodus.__logger__.error(f"Script path not provided for Job {self.job_id}.")
     
+        # Update status
+        self.status = self._check_job_status()
+
     """ Repr """
     def __repr__(self):
         s = super().__repr__()
@@ -219,6 +244,7 @@ class AdoptedPIDJob(Job):
     def run(self):
         # Create start marker file
         start_marker = self._create_marker_file(self.start_marker)
+        self.has_started = True
 
         if self.pid:
             nodus.__logger__.info(f"Adopting process with PID: {self.pid}")
@@ -226,6 +252,9 @@ class AdoptedPIDJob(Job):
 
         if self.process:
             self.pid = self.process.pid
+        
+        # Update status
+        self.status = self._check_job_status()
 
     """ Repr """
     def __repr__(self):

@@ -81,7 +81,7 @@ def curses_main(stdscr):
                 # If log_path is None, N/A
                 log_path = log_path if log_path else "N/A"
                 # If log_path is too long, truncate it
-                if len(log_path) > 20:
+                if len(log_path) > 30:
                     lp = log_path.split(os.sep)[-1]
                     log_path = f'…{os.sep}{lp[:15]}…{lp[-14:]}' if len(lp) > 30 else f"…{os.sep}{lp}"
                 #log_path = log_path[:17] + "..." if len(log_path) > 20 else log_path
@@ -91,7 +91,7 @@ def curses_main(stdscr):
                     stdscr.addstr(4 + idx, 0, f"{job_id:<5} {pid:<8} {nodus_session_id:<40} {parent_caller:<30} {job_name:<15} {status:<15} {timestamp:<20} {completion_time:<20} {runtime:<15} {log_path:<30}")
                     stdscr.attroff(curses.color_pair(1))
                 else:
-                    stdscr.addstr(4 + idx, 0, f"{job_id:<5} {pid:<8} {nodus_session_id:<40} {parent_caller:<30} {job_name:<15} {status:<15} {timestamp:<20} {completion_time:<20} {runtime:<15} {log_path:<30}")
+                    stdscr.addstr(4 + idx, 0, f"{str(job_id):<5} {str(pid):<8} {nodus_session_id:<40} {parent_caller:<30} {job_name:<15} {status:<15} {timestamp:<20} {completion_time:<20} {runtime:<15} {log_path:<30}")
         else:
             stdscr.addstr(3, 0, "No jobs found.", curses.color_pair(2))
 
