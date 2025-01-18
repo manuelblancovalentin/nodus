@@ -6,9 +6,6 @@ from datetime import datetime
 """ Async io """
 import asyncio
 
-""" Sqlite3 """
-import sqlite3
-
 """ Import nodus """
 import nodus
 
@@ -17,27 +14,48 @@ from rich.text import Text
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, Grid, ScrollableContainer
-from textual.widgets import Header, Footer, Button, Static, DataTable
-from textual.events import MouseEvent
+from textual.widgets import Header, Footer, Button, Static, DataTable, Label
+from textual.screen import ModalScreen
 
 """ Definitions """
 __COLUMNS__ = [('ID','job_id',{'width':5}), 
                ('PID','pid',{'width':8}), 
                ('Nodus Session ID', 'nodus_session_id', {'width':40}),
                ('Parent Caller', 'parent_caller', {'width':30}), 
-               ('Job Name', 'job_name', {'width':20}), 
+               ('Job Name', 'job_name', {'width':30}), 
                ('Status', 'status', {'width':15}), 
                ('Start Time', 'timestamp', {'width':20}), 
                ('End Time', 'completion_time', {'width':20}),
                ('Runtime', None, {'width':15}),
-               ('Log','log_path', {'width':50})]
+               ('Priority', 'priority', {'width':10}),
+               ('Log','log_path', {'width':50}),
+               ('Command', 'command', {'width':50}),
+               ('Script Path', 'script_path', {'width':50})]
+
+
+class WarningModal(ModalScreen):
+    def __init__(self, message: str):
+        super().__init__()
+        self.message = message  # Custom message
+
+    def compose(self) -> ComposeResult:
+        # Center the content vertically and horizontally
+        yield Vertical(
+            Label(f"⚠️ {self.message}", id="warning-message"),
+            Button("Close", id="close-button"),
+            id="warning-container"
+        )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "close-button":
+            self.app.pop_screen()  # Close the modal when "Close" is clicked
 
 """ Job list widget """
 class JobList(DataTable):
-    def __init__(self, db_path: str, *args, **kwargs):
+    def __init__(self, job_manager: nodus.manager.JobManager, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # set params 
-        self.db_path = db_path
+        self.job_manager = job_manager
         self.selected_row_index = None  # Store the index of the selected row
         self.jobs_dict = []
 
@@ -107,6 +125,9 @@ class JobList(DataTable):
         job_name = job['Job Name']
         timestamp = job['Start Time']
         log_path = job['Log']
+        priority = job['Priority']
+        command = job['Command']
+        script_path = job['Script Path']
 
         # Now compute runtime
         runtime = "N/A"
@@ -138,15 +159,27 @@ class JobList(DataTable):
             log_path = f'…{os.sep}{lp[:25]}…{lp[-24:]}' if len(lp) > 50 else f"…{os.sep}{lp}"
         job['Log'] = log_path
 
+        # If command is None, display "N/A"
+        command = command if command else "N/A"
+        job['Command'] = command[:47] + "..." if len(command) > 50 else command
+
+        # if priority is None, display "N/A"
+        job['Priority'] = priority if priority else "N/A"
+
+        # if script_path is None, display "N/A"
+        script_path = script_path if script_path else "N/A"
+        # if script_path is too long, truncate it
+        job['Script Path'] = script_path[:47] + "..." if len(script_path) > 50 else script_path
+
+
         return job, original_log_path
 
     async def fetch_jobs(self):
-        connection = sqlite3.connect(self.db_path)
-        cursor = connection.cursor()
+        #connection = sqlite3.connect(self.db_path)
+        cursor = self.job_manager.conn.cursor()
         fields = ', '.join([f[1] for f in __COLUMNS__ if f[1] is not None])
-        cursor.execute(f"SELECT {fields} FROM jobs")
+        cursor.execute(f"SELECT {fields} FROM jobs ORDER BY timestamp DESC")
         jobs = cursor.fetchall()
-        connection.close()
 
         # convert jobs to dict 
         jobs = [dict(zip([f[0] for f in __COLUMNS__ if f[1] is not None], job)) for job in jobs]
@@ -173,12 +206,29 @@ class JobList(DataTable):
         job_id = job['ID']
         row = list(self.rows.items())[row_index][0]
         # Now remove from database 
-        connection = sqlite3.connect(self.db_path)
-        cursor = connection.cursor()
+        #connection = sqlite3.connect(self.db_path)
+        cursor = self.job_manager.conn.cursor()
         cursor.execute(f"DELETE FROM jobs WHERE job_id = {job_id}")
-        connection.commit()
-        connection.close()
+        self.job_manager.conn.commit()
         self.remove_row(row)
+    
+    def rerun(self, row_index):
+        # Get row 
+        job = self.jobs_dict[row_index]
+        job_id = job['ID']
+
+        # Check if job is still running
+        if job['Status'] != 'completed' and job['Status'] != 'errored':
+            # Display a warning popup warning the user that the job is still running and it cannot be rerun
+            self.app.push_screen(WarningModal("Job is still running (or pending) and cannot be rerun. Please wait before trying to re-run again."))
+
+        # Make sure we have a command or a script path
+        if not job['Command'] and not job['Script Path']:
+            # Display a warning popup warning the user that the job is still running and it cannot be rerun
+            self.app.push_screen(WarningModal("Job does not have a command or script path so it cannot be run. Please check the job details."))
+
+        # Now rerun the job 
+        self.job_manager.rerun_job(job_id)
     
 
 
@@ -191,30 +241,24 @@ class JobDetails(Static):
                 f"Job ID: {job['ID']}\n"
                 f"Name: {job['Job Name']}\n"
                 f"PID: {job['PID']}\n"
+                f"Priority: {job['Priority']}\n"
                 f"Status: {job['Status']}\n"
                 f"Start Time: {job['Start Time']}\n"
                 f"End Time: {job['End Time']}\n"
                 f"Runtime: {job['Runtime']}\n"
                 f"Parent Caller: {job['Parent Caller']}\n"
                 f"Nodus Session ID: {job['Nodus Session ID']}\n"
-                f"Log: {job['Log']}"
+                f"Log: {job['Log']}\n"
+                f"Command: {job['Command']}\n"
+                f"Script Path: {job['Script Path']}\n"
             )
 
-            #  [('ID','job_id',{'width':5}), 
-            #    ('PID','pid',{'width':8}), 
-            #    ('Nodus Session ID', 'nodus_session_id', {'width':40}),
-            #    ('Parent Caller', 'parent_caller', {'width':30}), 
-            #    ('Job Name', 'job_name', {'width':20}), 
-            #    ('Status', 'status', {'width':15}), 
-            #    ('Start Time', 'timestamp', {'width':20}), 
-            #    ('End Time', 'completion_time', {'width':20}),
-            #    ('Runtime', None, {'width':15}),
-            #    ('Log','log_path', {'width':50})]
         else:
             self.update("No job selected.")
 
 class JobLog(Static):
-
+    _log = None
+    
     """A widget to display the log of a selected job."""
     def compose(self) -> ComposeResult:
         with Vertical() as vertical:
@@ -240,6 +284,17 @@ class JobLog(Static):
                 self.log_content.styles.padding = 0
                 yield self.log_content
 
+    async def on_mount(self):
+        """Set up the UI and start the refresh process."""
+        self.refresh_task = asyncio.create_task(self.refresh_log())
+
+    async def refresh_log(self):
+        """Update the table with the latest jobs."""
+        while True:
+            if self._log is not None:
+                # Update the displayed log
+                self.update_details(self._log)
+            await asyncio.sleep(2)
 
     def update_details(self, log):
         """Update the displayed job log."""
@@ -247,18 +302,21 @@ class JobLog(Static):
         if log:
             if not os.path.exists(log):
                 self.log_title.update(f"Log not found: {log}")
+                self._log = None
                 return
             self.log_title.update(f"Log: {log}")
             # Read content of log 
             with open(log, 'r') as f:
                 log_content = f.read()
-            
+            self._log = log
             log_content = self.add_line_numbers(log_content)
             # self.log_line_numbers.update(lines)
             self.log_content.update(log_content)
         else:
             self.log_title.update("No log selected.")
         self.log_scroll_view.visible = (log_content != "")
+        # Move scroll_view to bottom 
+        self.log_scroll_view.scroll_to(y=self.log_scroll_view.virtual_size.height, animate=False)
 
     def add_line_numbers(self, text: str) -> str:
         """Prepend line numbers to each line in the log content."""
@@ -278,7 +336,8 @@ class NodusApp(App):
         ("q", "quit", "Quit"), #("r", "refresh", "Refresh"), #("d", "toggle_dark", "Toggle Dark Mode"),
         ("k", "kill", "Kill selected job entry"),
         ("escape", "unfocus_selected", "Unfocus selected job entry"),
-        ("d", "delete_job_entry", "Delete selected job entry from db")
+        ("d", "delete_job_entry", "Delete selected job entry from db"),
+        ("r", "rerun_job", "Rerun selected job entry")
     ]
     CSS = """
     Vertical {
@@ -289,10 +348,10 @@ class NodusApp(App):
         width: 100%;
     }
     #job_list_group {
-        height: 60%;
+        height: 55%;
     }
     #job_bottom_group {
-        height: 40%;
+        height: 45%;
     }
     #job_details_group {
         height: 100%;
@@ -302,12 +361,38 @@ class NodusApp(App):
         height: 100%;
         width: 60%;
     }
+    #warning-container {
+        width: 50%;
+        height: auto;
+        background: darkred;
+        border: solid red;
+        padding: 2;
+        align: center middle;          /* Fully center the container */
+        content-align: center middle;  /* Center content inside the container */
+    }
+
+    #warning-message {
+        color: white;
+        text-align: center;
+        padding-bottom: 1;
+    }
+
+    #close-button {
+        align: center middle;  /* Center the button */
+    }
     """
 
     def __init__(self, db_path: str, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.dark = False
         self.db_path = db_path
+        # Setup the db 
+        # Create Nodus Session
+        self.session = nodus.NodusSession()
+        self.db = self.session.add_nodus_db(db_path = self.db_path)
+        # Get jm 
+        self.jm = self.db.job_manager
+
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -322,7 +407,7 @@ class NodusApp(App):
                 c1.styles.border_title_align = 'left'
                 c1.styles.padding = 1
 
-                self.job_list = JobList(self.db_path)
+                self.job_list = JobList(self.jm)
                 yield self.job_list
 
             with Horizontal(id = "job_bottom_group") as h:
@@ -417,6 +502,13 @@ class NodusApp(App):
                 self.job_details.update_details(None)
                 self.job_log.update_details(None)
             
+
+    def action_rerun_job(self):
+        """Custom action to delete the selected job."""
+        current_row = self.job_list.cursor_row
+        if current_row is not None:
+            self.job_list.rerun(current_row)
+
     def action_unfocus_selected(self):
         # TODO: THIS DOESN'T WORK
         self.job_list.move_cursor(row=None)
@@ -424,6 +516,13 @@ class NodusApp(App):
         self.job_details.update_details(None)
         self.job_log.update_details(None)
 
-def run_ui():
-    app = NodusApp(nodus.__nodus_db_path__)
+def run_ui(db_path: str = None):
+    if db_path is not None:
+        if not os.path.isfile(db_path): 
+            # Roll back 
+            db_path = nodus.__nodus_db_path__
+    else:
+        db_path = nodus.__nodus_db_path__
+
+    app = NodusApp(db_path)
     app.run()

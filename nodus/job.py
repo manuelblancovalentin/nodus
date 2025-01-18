@@ -12,7 +12,8 @@ import nodus
 
 """ Generic Job class """
 class Job:
-    def __init__(self, name, job_id, nodus_session_id, parent_caller = "nodus", pid = None, config = None, status = "pending"):
+    def __init__(self, name, job_id, nodus_session_id, parent_caller = "nodus", pid = None, config = None, 
+                 status = "pending", priority = 0 ):
         self.name = name
         self.job_id = job_id
         self.nodus_session_id = nodus_session_id
@@ -24,6 +25,7 @@ class Job:
         self.pid = pid
         self.status = status
         self.config = config
+        self.priority = priority
 
         # Init process to None (only valid after running the subprocess)
         self.process = None

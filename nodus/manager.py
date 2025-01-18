@@ -70,7 +70,8 @@ class JobManager:
             raise
 
     def _create_job_entry(self, name, parent_caller, job_type, nodus_session_id, command = None, script_path = None, 
-                          status='pending', log_path=None, pid=None, config=None, **kwargs):
+                          status='pending', log_path=None, pid=None, config=None, 
+                          priority = 0, **kwargs):
         
         """Create a new job in the database and handle job execution."""
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -80,9 +81,9 @@ class JobManager:
 
         # Create job entry in the database
         cursor = self.execute_query('''
-            INSERT INTO jobs (nodus_session_id, parent_caller, job_name, status, timestamp, log_path, pid, config)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''',(nodus_session_id, parent_caller, name, status, timestamp, log_path, pid, config))
+            INSERT INTO jobs (nodus_session_id, parent_caller, job_name, status, timestamp, log_path, pid, config, command, priority, script_path)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''',(nodus_session_id, parent_caller, name, status, timestamp, log_path, pid, config, command, priority, script_path))
 
         job_id = cursor.lastrowid
 
@@ -154,6 +155,10 @@ class JobManager:
 
         # Create the Job object
         job_class = {'command': nodus.job.CommandJob, 'script': nodus.job.ScriptJob, 'pid': nodus.job.AdoptedPIDJob}.get(job_type, nodus.job.Job)
+        if job_type == 'command' or job_type == 'pid':
+            if 'script_path' in kwargs: del kwargs['script_path']
+        elif job_type == 'script' or job_type == 'pid':
+            if 'command' in kwargs: del kwargs['command']
         job = job_class(name, job_id, nodus_session_id, **kwargs)
 
         # Update log_path 
@@ -198,6 +203,74 @@ class JobManager:
         
         return job_id, job
 
+    def rerun_job(self, job_id):
+        # Fetch job info from jm
+        job = self.get_job(job_id)
+
+        # Make sure name and parent_caller are not none 
+        if job['job_name'] is None:
+            # log warning and retunr 
+            nodus.__logger__.warning(f"Job {job_id} has no name. Skipping rerun.")
+            return job_id, job
+
+        if job['parent_caller'] is None:
+            # log warning and retunr 
+            nodus.__logger__.warning(f"Job {job_id} has no parent caller. Skipping rerun.")
+            return job_id, job
+        
+
+        # Gather information about the job to re-run it:
+        name = job['job_name']
+        prefix = 'nodus::'
+        parent_caller = prefix + job['parent_caller'] if job['parent_caller'][:len(prefix)] != prefix else job['parent_caller']
+        command = None
+        job_type = None
+        if job['command']: 
+            command = job['command']
+            job_type = 'command'
+        script_path = None
+        if job['script_path']: 
+            script_path = job['script_path']
+            if job_type is None: job_type = 'script'
+        
+        # Job has to have either command or script_path, if not, warn and return 
+        if job_type is None:
+            nodus.__logger__.warning(f"Job {job_id} has no command or script_path. Skipping rerun.")
+            return job_id, job
+        
+        # Get dependencies
+        dependencies = self.get_job_dependencies(job_id)
+
+        # Get priority
+        priority = job['priority']
+
+        # And config 
+        config = job['config']
+
+        # Finally, create the job
+        new_job_id, new_job = self.create_job(
+            name=name,
+            parent_caller=parent_caller,
+            job_type = job_type,
+            command = command,
+            script_path = script_path,
+            dependencies = dependencies,
+            priority = priority,
+            config = config
+        )
+
+        return new_job_id, new_job
+
+    def get_job_dependencies(self, job_id):
+        """Get the dependencies of a job."""
+        cursor = self.execute_query('''
+            SELECT dependency_job_id
+            FROM job_dependencies
+            WHERE job_id = ?
+        ''', (job_id,))
+        dependencies = cursor.fetchall()
+        return [dep[0] for dep in dependencies]
+    
     def update_job_status(self, job_id, status, job_pid, completion_time=None, db_conn = None):
         """Update the status of a job."""
         if status in ['completed']:
@@ -306,7 +379,7 @@ class JobManager:
     def get_jobs(self):
         """Get a list of all jobs."""
         cursor = self.execute_query('''
-            SELECT job_id, nodus_session_id, parent_caller, job_name, status, timestamp, completion_time, log_path, pid, config
+            SELECT job_id, nodus_session_id, parent_caller, job_name, status, timestamp, completion_time, log_path, pid, config, command, priority, script_path
             FROM jobs
             ORDER BY job_id DESC
         ''')
@@ -317,13 +390,13 @@ class JobManager:
     def get_job(self, job_id):
         """Get a specific job by its ID."""
         cursor = self.execute_query('''
-            SELECT job_id, nodus_session_id, parent_caller, job_name, status, timestamp, completion_time, log_path, pid, config
+            SELECT job_id, nodus_session_id, parent_caller, job_name, status, timestamp, completion_time, log_path, pid, config, command, priority, script_path
             FROM jobs
             WHERE job_id = ?
         ''', (job_id,))
         job = cursor.fetchone()
         # Transform to dict
-        job = dict(zip(['job_id', 'nodus_session_id', 'parent_caller', 'job_name', 'status', 'timestamp', 'completion_time', 'log_path', 'pid', 'config'], job))
+        job = dict(zip(['job_id', 'nodus_session_id', 'parent_caller', 'job_name', 'status', 'timestamp', 'completion_time', 'log_path', 'pid', 'config', 'command', 'priority', 'script_path'], job))
         return job
 
     def wait_for_job_completion(self, job_id):

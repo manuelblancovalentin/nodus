@@ -11,6 +11,7 @@ __nodus_data_dir__ = os.path.expanduser('~/.nodus')
 try:
     os.makedirs(__nodus_data_dir__, exist_ok=True)
 except Exception as e:
+    import logging
     logging.error(f"Failed to create data directory: {e}")
 
 # Setup db path

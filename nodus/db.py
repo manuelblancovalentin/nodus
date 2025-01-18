@@ -43,7 +43,10 @@ __JOBS_TABLE_SCHEME__ = '''
                 completion_time TEXT,
                 log_path TEXT,
                 pid TEXT DEFAULT NULL,
-                config TEXT
+                config TEXT,
+                command TEXT,
+                priority INTEGER DEFAULT 0,
+                script_path TEXT DEFAULT NULL
             )
         '''
 
@@ -136,14 +139,34 @@ class NodusDB:
         self.conn = sqlite3.connect(self.db_path)
         self.cursor = self.conn.cursor()
 
-        # Create the jobs table if it doesn't exist
+        # Create the jobs table if it doesn't exist and check if each column exists
         if create_table: 
             self.create_jobs_table()
             self.create_job_dependencies_table()
+        
+        self.check_table()
 
         # Initialize the JobManager
         jm_name = f"{name}_job_manager"
         self.job_manager = JobManager(jm_name, self.db_path, self.session_id)
+
+    def check_table(self):
+        self.cursor.execute("PRAGMA table_info(jobs);")
+        columns = [col[1] for col in self.cursor.fetchall()]
+
+        # Compatibility check (we added priority and command on Jan/17/2025)
+        if 'priority' not in columns:
+            self.cursor.execute("ALTER TABLE jobs ADD COLUMN priority INTEGER DEFAULT 0;")
+            self.conn.commit()
+            nodus.__logger__.info(f"Added 'priority' column to jobs table in NodusDB instance '{self.name}'")
+        if 'command' not in columns:
+            self.cursor.execute("ALTER TABLE jobs ADD COLUMN command TEXT;")
+            self.conn.commit()
+            nodus.__logger__.info(f"Added 'command' column to jobs table in NodusDB instance '{self.name}'")
+        if 'script_path' not in columns:
+            self.cursor.execute("ALTER TABLE jobs ADD COLUMN script_path TEXT DEFAULT NULL;")
+            self.conn.commit()
+            nodus.__logger__.info(f"Added 'script_path' column to jobs table in NodusDB instance '{self.name}'")
 
     def create_jobs_table(self):
         """Create the jobs table if it doesn't exist."""
